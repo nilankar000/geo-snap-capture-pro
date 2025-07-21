@@ -1,39 +1,102 @@
 import { CapacitorSQLite, SQLiteConnection, SQLiteDBConnection } from '@capacitor-community/sqlite';
 import { ManualGPSData, GPSOverlayTemplate } from '@/types/gps';
 
+// Web fallback storage interface
+interface WebStorage {
+  getItem(key: string): string | null;
+  setItem(key: string, value: string): void;
+  removeItem(key: string): void;
+}
+
 class DatabaseService {
-  private sqlite: SQLiteConnection;
+  private sqlite: SQLiteConnection | null = null;
   private db: SQLiteDBConnection | null = null;
   private readonly DB_NAME = 'gps_camera_app.db';
   private readonly DB_VERSION = 1;
+  private webStorage: WebStorage;
+  private isWeb: boolean;
+  private isInitialized = false;
 
   constructor() {
-    this.sqlite = new SQLiteConnection(CapacitorSQLite);
+    this.isWeb = !(window as any).Capacitor || (window as any).Capacitor.platform === 'web';
+    this.webStorage = localStorage;
+    
+    if (!this.isWeb) {
+      this.sqlite = new SQLiteConnection(CapacitorSQLite);
+    }
   }
 
   async initialize(): Promise<void> {
     try {
-      // Check if database exists
-      const ret = await this.sqlite.checkConnectionsConsistency();
-      const isConn = (await this.sqlite.isConnection(this.DB_NAME, false)).result;
+      console.log('Initializing database...');
       
-      if (ret.result && isConn) {
-        this.db = await this.sqlite.retrieveConnection(this.DB_NAME, false);
+      if (this.isWeb) {
+        await this.initializeWebStorage();
       } else {
-        this.db = await this.sqlite.createConnection(
-          this.DB_NAME,
-          false,
-          'no-encryption',
-          this.DB_VERSION,
-          false
-        );
+        await this.initializeSQLite();
       }
-
-      await this.db.open();
-      await this.createTables();
+      
+      this.isInitialized = true;
+      console.log('Database initialized successfully');
     } catch (error) {
       console.error('Database initialization failed:', error);
-      throw error;
+      // Fallback to web storage even on native if SQLite fails
+      if (!this.isWeb) {
+        console.log('Falling back to web storage...');
+        this.isWeb = true;
+        await this.initializeWebStorage();
+        this.isInitialized = true;
+      } else {
+        throw error;
+      }
+    }
+  }
+
+  private async initializeSQLite(): Promise<void> {
+    if (!this.sqlite) throw new Error('SQLite not initialized');
+
+    // Check if database exists
+    const ret = await this.sqlite.checkConnectionsConsistency();
+    const isConn = (await this.sqlite.isConnection(this.DB_NAME, false)).result;
+    
+    if (ret.result && isConn) {
+      this.db = await this.sqlite.retrieveConnection(this.DB_NAME, false);
+    } else {
+      this.db = await this.sqlite.createConnection(
+        this.DB_NAME,
+        false,
+        'no-encryption',
+        this.DB_VERSION,
+        false
+      );
+    }
+
+    await this.db.open();
+    await this.createTables();
+  }
+
+  private async initializeWebStorage(): Promise<void> {
+    // Initialize web storage with default data if not exists
+    if (!this.webStorage.getItem('manual_gps_data')) {
+      this.webStorage.setItem('manual_gps_data', JSON.stringify([]));
+    }
+    if (!this.webStorage.getItem('overlay_templates')) {
+      const defaultTemplate: GPSOverlayTemplate = {
+        id: 'default',
+        name: 'Default Template',
+        fields: [
+          { id: 'lat', label: 'Latitude', value: '', type: 'coordinate', visible: true, order: 1 },
+          { id: 'lng', label: 'Longitude', value: '', type: 'coordinate', visible: true, order: 2 },
+          { id: 'timestamp', label: 'Timestamp', value: '', type: 'datetime', visible: true, order: 3 },
+        ],
+        layout: 'horizontal',
+        backgroundColor: 'rgba(0, 0, 0, 0.7)',
+        textColor: '#ffffff',
+        fontSize: 14,
+        showLogo: true,
+        logoPosition: 'right'
+      };
+      this.webStorage.setItem('overlay_templates', JSON.stringify([defaultTemplate]));
     }
   }
 
@@ -111,6 +174,24 @@ class DatabaseService {
 
   // Manual GPS Data Methods
   async saveManualGPSData(data: ManualGPSData): Promise<void> {
+    if (!this.isInitialized) {
+      throw new Error('Database not initialized');
+    }
+
+    if (this.isWeb) {
+      const existingData = await this.getManualGPSData();
+      const index = existingData.findIndex(item => item.id === data.id);
+      
+      if (index >= 0) {
+        existingData[index] = { ...data, updatedAt: new Date() };
+      } else {
+        existingData.unshift(data);
+      }
+      
+      this.webStorage.setItem('manual_gps_data', JSON.stringify(existingData));
+      return;
+    }
+
     if (!this.db) throw new Error('Database not initialized');
 
     const query = `
@@ -137,6 +218,15 @@ class DatabaseService {
   }
 
   async getManualGPSData(): Promise<ManualGPSData[]> {
+    if (!this.isInitialized) {
+      throw new Error('Database not initialized');
+    }
+
+    if (this.isWeb) {
+      const data = this.webStorage.getItem('manual_gps_data');
+      return data ? JSON.parse(data) : [];
+    }
+
     if (!this.db) throw new Error('Database not initialized');
 
     const result = await this.db.query('SELECT * FROM manual_gps_data ORDER BY updated_at DESC');
@@ -162,12 +252,41 @@ class DatabaseService {
   }
 
   async deleteManualGPSData(id: string): Promise<void> {
+    if (!this.isInitialized) {
+      throw new Error('Database not initialized');
+    }
+
+    if (this.isWeb) {
+      const existingData = await this.getManualGPSData();
+      const filteredData = existingData.filter(item => item.id !== id);
+      this.webStorage.setItem('manual_gps_data', JSON.stringify(filteredData));
+      return;
+    }
+
     if (!this.db) throw new Error('Database not initialized');
     await this.db.run('DELETE FROM manual_gps_data WHERE id = ?', [id]);
   }
 
   // Overlay Template Methods
   async saveOverlayTemplate(template: GPSOverlayTemplate): Promise<void> {
+    if (!this.isInitialized) {
+      throw new Error('Database not initialized');
+    }
+
+    if (this.isWeb) {
+      const existingTemplates = await this.getOverlayTemplates();
+      const index = existingTemplates.findIndex(item => item.id === template.id);
+      
+      if (index >= 0) {
+        existingTemplates[index] = template;
+      } else {
+        existingTemplates.push(template);
+      }
+      
+      this.webStorage.setItem('overlay_templates', JSON.stringify(existingTemplates));
+      return;
+    }
+
     if (!this.db) throw new Error('Database not initialized');
 
     const query = `
@@ -195,6 +314,15 @@ class DatabaseService {
   }
 
   async getOverlayTemplates(): Promise<GPSOverlayTemplate[]> {
+    if (!this.isInitialized) {
+      throw new Error('Database not initialized');
+    }
+
+    if (this.isWeb) {
+      const data = this.webStorage.getItem('overlay_templates');
+      return data ? JSON.parse(data) : [];
+    }
+
     if (!this.db) throw new Error('Database not initialized');
 
     const result = await this.db.query('SELECT * FROM overlay_templates ORDER BY name');
@@ -215,16 +343,31 @@ class DatabaseService {
   }
 
   async deleteOverlayTemplate(id: string): Promise<void> {
+    if (!this.isInitialized) {
+      throw new Error('Database not initialized');
+    }
+
+    if (this.isWeb) {
+      const existingTemplates = await this.getOverlayTemplates();
+      const filteredTemplates = existingTemplates.filter(item => item.id !== id);
+      this.webStorage.setItem('overlay_templates', JSON.stringify(filteredTemplates));
+      return;
+    }
+
     if (!this.db) throw new Error('Database not initialized');
     await this.db.run('DELETE FROM overlay_templates WHERE id = ?', [id]);
   }
 
   async close(): Promise<void> {
-    if (this.db) {
+    if (this.db && this.sqlite) {
       await this.db.close();
       await this.sqlite.closeConnection(this.DB_NAME, false);
       this.db = null;
     }
+  }
+
+  getInitializationStatus(): boolean {
+    return this.isInitialized;
   }
 }
 
