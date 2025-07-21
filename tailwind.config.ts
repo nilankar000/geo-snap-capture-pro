@@ -61,7 +61,15 @@ export default {
 					'accent-foreground': 'hsl(var(--sidebar-accent-foreground))',
 					border: 'hsl(var(--sidebar-border))',
 					ring: 'hsl(var(--sidebar-ring))'
-				}
+				},
+				// Camera specific colors
+				'camera-overlay': 'hsl(var(--camera-overlay))',
+				'camera-overlay-text': 'hsl(var(--camera-overlay-text))',
+				'camera-focus': 'hsl(var(--camera-focus))',
+				'camera-grid': 'hsl(var(--camera-grid))',
+				'gps-active': 'hsl(var(--gps-active))',
+				'gps-inactive': 'hsl(var(--gps-inactive))',
+				'gps-manual': 'hsl(var(--gps-manual))'
 			},
 			borderRadius: {
 				lg: 'var(--radius)',
@@ -84,11 +92,57 @@ export default {
 					to: {
 						height: '0'
 					}
+				},
+				'camera-focus': {
+					'0%': {
+						transform: 'scale(1)',
+						opacity: '0.5'
+					},
+					'50%': {
+						transform: 'scale(1.1)',
+						opacity: '1'
+					},
+					'100%': {
+						transform: 'scale(1)',
+						opacity: '0.5'
+					}
+				},
+				'capture-flash': {
+					'0%': {
+						opacity: '0'
+					},
+					'50%': {
+						opacity: '0.8'
+					},
+					'100%': {
+						opacity: '0'
+					}
+				},
+				'gps-pulse': {
+					'0%, 100%': {
+						transform: 'scale(1)',
+						opacity: '1'
+					},
+					'50%': {
+						transform: 'scale(1.05)',
+						opacity: '0.8'
+					}
 				}
 			},
 			animation: {
 				'accordion-down': 'accordion-down 0.2s ease-out',
-				'accordion-up': 'accordion-up 0.2s ease-out'
+				'accordion-up': 'accordion-up 0.2s ease-out',
+				'camera-focus': 'camera-focus 2s ease-in-out infinite',
+				'capture-flash': 'capture-flash 0.3s ease-out',
+				'gps-pulse': 'gps-pulse 2s ease-in-out infinite'
+			},
+			backgroundImage: {
+				'gradient-camera': 'var(--gradient-camera)',
+				'gradient-overlay': 'var(--gradient-overlay)'
+			},
+			boxShadow: {
+				'camera': 'var(--shadow-camera)',
+				'overlay': 'var(--shadow-overlay)'
 			}
 		}
 	},
